@@ -1,0 +1,30 @@
+# Cloudflare Workers configuration for Discord bot
+# See: https://developers.cloudflare.com/workers/wrangler/configuration/
+
+name = "discord-bot"
+main = "worker.js"
+compatibility_date = "2024-11-25"
+
+# Environment variables (set these in Cloudflare dashboard or via wrangler secret)
+# - DISCORD_PUBLIC_KEY: Your Discord application's public key (for signature verification)
+# - DISCORD_BOT_TOKEN: Your Discord bot token (for making API calls)
+# - POCKETBASE_URL: PocketBase instance URL
+
+# You can set secrets using: wrangler secret put DISCORD_PUBLIC_KEY
+# You can set secrets using: wrangler secret put DISCORD_BOT_TOKEN
+# You can set secrets using: wrangler secret put POCKETBASE_URL
+
+# KV namespaces for storing data (optional - for database replacement)
+# [[kv_namespaces]]
+# binding = "DISCORD_BOT_KV"
+# id = "your_kv_namespace_id"
+# preview_id = "your_preview_kv_namespace_id"
+
+# D1 Database bindings (optional - for SQLite replacement)
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "discord-bot-db"
+# database_id = "your_database_id"
+
+[observability]
+enabled = true

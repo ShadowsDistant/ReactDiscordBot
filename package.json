@@ -1,0 +1,14 @@
+{
+  "name": "discord-bot-worker",
+  "version": "1.0.0",
+  "description": "Cloudflare Workers handler for Discord interactions",
+  "type": "module",
+  "main": "worker.js",
+  "scripts": {
+    "start": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "discord-interactions": "^4.0.0"
+  }
+}

@@ -92,6 +92,26 @@ Set the `POCKETBASE_URL` environment variable (e.g. `https://api-react.pikapod.n
 
 Each staff member must run the `/login` command and supply their personal PocketBase auth key before they can use `/start-shift`, `/end-shift`, or `/shift-status`. The auth key is stored securely in the bot's local database and is used to authenticate requests on behalf of the staff member; you can update it at any time by running `/login` again.
 
+### Command synchronization
+
+By default, the bot will automatically sync slash commands with Discord on startup. This ensures commands are always up-to-date and fixes issues like `CommandSignatureMismatch` or `CommandNotFound` errors.
+
+To control this behavior, set in your `.env` file:
+```
+SYNC_COMMANDS_ON_STARTUP=true
+```
+
+You can also manually sync commands using the owner-only prefix commands:
+- `!sync global` - Sync commands globally (takes up to 1 hour)
+- `!sync guild` - Sync commands to current guild (instant)
+- `!unsync global` - Remove all global commands
+- `!unsync guild` - Remove all guild commands
+
+Alternatively, use the interactive deployment script:
+```bash
+python deploy_commands.py
+```
+
 ## How to start
 
 ### The _"usual"_ way
@@ -123,6 +143,17 @@ docker compose up -d --build
 ```
 
 > **Note**: `-d` will make the container run in detached mode, so in the background.
+
+### Cloudflare Workers
+
+If you prefer a serverless deployment using Discord's Interactions API, you can deploy this bot to [Cloudflare Workers](https://developers.cloudflare.com/workers/). Follow the step-by-step guide in [CLOUDFLARE_DEPLOYMENT.md](CLOUDFLARE_DEPLOYMENT.md) to:
+
+- Configure the worker runtime and secrets
+- Verify Discord interaction signatures
+- Register slash commands via `deploy_commands.py`
+- Understand how auto-sync works and how to delete outdated commands (e.g., "profile")
+
+This option is ideal if your bot primarily uses slash commands and you want zero-maintenance hosting.
 
 ## Issues or Questions
 
