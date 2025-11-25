@@ -289,5 +289,10 @@ class DiscordBot(commands.Bot):
             raise error
 
 
-bot = DiscordBot()
-bot.run(os.getenv("TOKEN"))
+def main() -> None:
+    bot = DiscordBot()
+    bot.run(os.getenv("TOKEN"))
+
+
+if __name__ == "__main__":
+    main()

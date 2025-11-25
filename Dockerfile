@@ -1,8 +1,8 @@
 FROM python:3.12.9-slim-bookworm
 
-WORKDIR /bot
-COPY . /bot
+WORKDIR /app
+COPY . /app
 
 RUN python -m pip install -r requirements.txt
 
-ENTRYPOINT [ "python", "bot.py" ]
+ENTRYPOINT [ "python", "main.py" ]
