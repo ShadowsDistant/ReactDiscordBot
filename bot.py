@@ -141,6 +141,51 @@ class DiscordBot(commands.Bot):
         self.pocketbase = PocketBaseClient(
             base_url=os.getenv("POCKETBASE_URL"),
         )
+        self.sync_commands_on_start = self._env_flag("SYNC_COMMANDS_ON_STARTUP", True)
+        self.command_sync_guild_ids = self._parse_command_sync_guilds(
+            os.getenv("COMMAND_SYNC_GUILDS")
+        )
+
+    def _env_flag(self, key: str, default: bool = False) -> bool:
+        """Parse boolean environment variable."""
+        value = os.getenv(key)
+        if value is None:
+            return default
+        return value.strip().lower() in ("true", "1", "yes", "on")
+
+    def _parse_command_sync_guilds(self, value: str) -> list:
+        """Parse comma-separated guild IDs for command syncing."""
+        if not value:
+            return []
+        guild_ids = []
+        for guild_id in value.split(","):
+            guild_id = guild_id.strip()
+            if not guild_id:
+                continue
+            try:
+                guild_ids.append(int(guild_id))
+            except ValueError:
+                self.logger.warning("Ignoring invalid guild ID in COMMAND_SYNC_GUILDS: %s", guild_id)
+        return guild_ids
+
+    async def _sync_commands(self) -> None:
+        """Synchronize application commands with Discord."""
+        try:
+            if self.command_sync_guild_ids:
+                for guild_id in self.command_sync_guild_ids:
+                    guild = discord.Object(id=guild_id)
+                    self.tree.copy_global_to(guild=guild)
+                    guild_synced = await self.tree.sync(guild=guild)
+                    self.logger.info(
+                        "Synchronized %s command(s) to guild %s.", len(guild_synced), guild_id
+                    )
+            synced = await self.tree.sync()
+            self.logger.info(
+                "Synchronized %s global application command(s).",
+                len(synced),
+            )
+        except discord.HTTPException as error:
+            self.logger.error(f"Failed to sync application commands: {error}")
 
     async def init_db(self) -> None:
         async with aiosqlite.connect(
@@ -197,6 +242,10 @@ class DiscordBot(commands.Bot):
         self.logger.info("-------------------")
         await self.init_db()
         await self.load_cogs()
+        
+        if self.sync_commands_on_start:
+            await self._sync_commands()
+        
         self.status_task.start()
         self.database = DatabaseManager(
             connection=await aiosqlite.connect(
