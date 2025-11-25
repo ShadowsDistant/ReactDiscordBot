@@ -88,13 +88,9 @@ Alternatively you can simply create a system environment variable with the same 
 
 ### PocketBase integration
 
-The `/start-shift`, `/end-shift`, and `/shift-status` commands require access to the PocketBase instance that powers the staff portal. Provide the following environment variables in your `.env` file (or as system variables) to enable these commands:
+Set the `POCKETBASE_URL` environment variable (e.g. `https://api-react.pikapod.net`) so the bot knows where to reach your PocketBase instance.
 
-| Variable | Description |
-| --- | --- |
-| `POCKETBASE_URL` | Base URL of the PocketBase deployment (e.g. `https://api-react.pikapod.net`). |
-| `POCKETBASE_ADMIN_EMAIL` | Admin email used for authenticating with the PocketBase API. |
-| `POCKETBASE_ADMIN_PASSWORD` | Password for the admin PocketBase account. |
+Each staff member must run the `/login` command and supply their personal PocketBase auth key before they can use `/start-shift`, `/end-shift`, or `/shift-status`. The auth key is stored securely in the bot's local database and is used to authenticate requests on behalf of the staff member; you can update it at any time by running `/login` again.
 
 ## How to start
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from typing import Any, Dict, Optional
 
 import aiohttp
@@ -10,24 +9,21 @@ class PocketBaseError(Exception):
     """Raised when a PocketBase request fails."""
 
 
+class PocketBaseAuthenticationError(PocketBaseError):
+    """Raised when PocketBase rejects an auth token."""
+
+
 class PocketBaseClient:
-    def __init__(
-        self,
-        base_url: Optional[str],
-        admin_email: Optional[str],
-        admin_password: Optional[str],
-    ) -> None:
+    def __init__(self, base_url: Optional[str]) -> None:
         self.base_url = base_url.rstrip("/") if base_url else None
-        self.admin_email = admin_email
-        self.admin_password = admin_password
-        self._token: Optional[str] = None
-        self._auth_lock = asyncio.Lock()
 
     @property
     def is_configured(self) -> bool:
-        return bool(self.base_url and self.admin_email and self.admin_password)
+        return bool(self.base_url)
 
-    async def get_user_by_discord_id(self, discord_id: int) -> Dict[str, Any]:
+    async def get_user_by_discord_id(
+        self, auth_token: str, discord_id: int
+    ) -> Dict[str, Any]:
         result = await self._request(
             "GET",
             "/api/collections/users/records",
@@ -35,6 +31,8 @@ class PocketBaseClient:
                 "filter": f"discord_user_id={int(discord_id)}",
                 "perPage": 1,
             },
+            auth_token=auth_token,
+            require_auth=True,
         )
         items = result.get("items", [])
         if not items:
@@ -43,7 +41,9 @@ class PocketBaseClient:
             )
         return items[0]
 
-    async def get_active_shift(self, user_id: str) -> Optional[Dict[str, Any]]:
+    async def get_active_shift(
+        self, auth_token: str, user_id: str
+    ) -> Optional[Dict[str, Any]]:
         result = await self._request(
             "GET",
             "/api/collections/shifts/records",
@@ -51,19 +51,27 @@ class PocketBaseClient:
                 "filter": f'user="{user_id}" && status="active"',
                 "perPage": 1,
             },
+            auth_token=auth_token,
+            require_auth=True,
         )
         items = result.get("items", [])
         return items[0] if items else None
 
-    async def create_shift(self, user_id: str) -> Dict[str, Any]:
+    async def create_shift(self, auth_token: str, user_id: str) -> Dict[str, Any]:
         return await self._request(
             "POST",
             "/api/collections/shifts/records",
             json={"user": user_id, "status": "active"},
+            auth_token=auth_token,
+            require_auth=True,
         )
 
     async def complete_shift(
-        self, shift_id: str, end_time: str, duration_minutes: int
+        self,
+        auth_token: str,
+        shift_id: str,
+        end_time: str,
+        duration_minutes: int,
     ) -> Dict[str, Any]:
         return await self._request(
             "PATCH",
@@ -73,9 +81,13 @@ class PocketBaseClient:
                 "status": "completed",
                 "duration_minutes": duration_minutes,
             },
+            auth_token=auth_token,
+            require_auth=True,
         )
 
-    async def get_latest_shift(self, user_id: str) -> Optional[Dict[str, Any]]:
+    async def get_latest_shift(
+        self, auth_token: str, user_id: str
+    ) -> Optional[Dict[str, Any]]:
         result = await self._request(
             "GET",
             "/api/collections/shifts/records",
@@ -84,6 +96,8 @@ class PocketBaseClient:
                 "sort": "-start_time",
                 "perPage": 1,
             },
+            auth_token=auth_token,
+            require_auth=True,
         )
         items = result.get("items", [])
         return items[0] if items else None
@@ -95,71 +109,37 @@ class PocketBaseClient:
         *,
         params: Optional[Dict[str, Any]] = None,
         json: Optional[Dict[str, Any]] = None,
-        auth_required: bool = True,
+        auth_token: Optional[str] = None,
+        require_auth: bool = False,
     ) -> Any:
         if not self.base_url:
             raise PocketBaseError("PocketBase base URL has not been configured.")
 
-        if auth_required:
-            await self._ensure_token()
+        headers = {}
+        if require_auth:
+            if not auth_token:
+                raise PocketBaseAuthenticationError(
+                    "You need to link your PocketBase auth key with /login before using this command."
+                )
+            headers["Authorization"] = f"Bearer {auth_token}"
 
         url = f"{self.base_url}{path}"
-        for attempt in range(2):
-            headers = {}
-            if auth_required and self._token:
-                headers["Authorization"] = f"Bearer {self._token}"
-
-            async with aiohttp.ClientSession() as session:
-                async with session.request(
-                    method,
-                    url,
-                    params=params,
-                    json=json,
-                    headers=headers,
-                ) as response:
-                    data = await self._consume_response(response)
-                    if response.status == 401 and auth_required and attempt == 0:
-                        self._token = None
-                        await self._ensure_token()
-                        continue
-
-                    if response.status >= 400:
-                        raise PocketBaseError(self._extract_error_message(data))
-
-                    return data
-
-        raise PocketBaseError("Authentication with PocketBase failed.")
-
-    async def _ensure_token(self) -> None:
-        if self._token:
-            return
-
-        if not self.is_configured:
-            raise PocketBaseError(
-                "PocketBase admin credentials have not been configured via environment variables."
-            )
-
-        async with self._auth_lock:
-            if self._token:
-                return
-
-            payload = {
-                "identity": self.admin_email,
-                "password": self.admin_password,
-            }
-            url = f"{self.base_url}/api/admins/auth-with-password"
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload) as response:
-                    data = await self._consume_response(response)
-                    if response.status >= 400:
-                        raise PocketBaseError(self._extract_error_message(data))
-
-                    token = data.get("token") if isinstance(data, dict) else None
-                    if not token:
-                        raise PocketBaseError(
-                            "PocketBase authentication did not return a token."
-                        )
-                    self._token = token
+        async with aiohttp.ClientSession() as session:
+            async with session.request(
+                method,
+                url,
+                params=params,
+                json=json,
+                headers=headers,
+            ) as response:
+                data = await self._consume_response(response)
+                if response.status == 401:
+                    raise PocketBaseAuthenticationError(
+                        "PocketBase rejected your auth key. Please run /login again."
+                    )
+                if response.status >= 400:
+                    raise PocketBaseError(self._extract_error_message(data))
+                return data
 
     @staticmethod
     async def _consume_response(response: aiohttp.ClientResponse) -> Any:

@@ -7,7 +7,11 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from pocketbase_client import PocketBaseClient, PocketBaseError
+from pocketbase_client import (
+    PocketBaseAuthenticationError,
+    PocketBaseClient,
+    PocketBaseError,
+)
 
 SUCCESS_COLOR = 0xBEBEFE
 ERROR_COLOR = 0xE02B2B
@@ -18,22 +22,79 @@ class Shifts(commands.Cog, name="shifts"):
     def __init__(self, bot) -> None:
         self.bot = bot
 
-    @app_commands.command(name="start-shift", description="Start your shift and log it in PocketBase.")
-    async def start_shift(self, interaction: discord.Interaction) -> None:
-        client = self._get_client()
+    @app_commands.command(
+        name="login",
+        description="Link your PocketBase auth key so you can use the shift commands.",
+    )
+    @app_commands.describe(auth_key="Your PocketBase auth key from the staff portal.")
+    async def login(self, interaction: discord.Interaction, auth_key: str) -> None:
+        client = await self._require_client(interaction)
         if client is None:
-            await interaction.response.send_message(
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        try:
+            user_record = await client.get_user_by_discord_id(auth_key, interaction.user.id)
+        except PocketBaseAuthenticationError as error:
+            await interaction.followup.send(
+                embed=self._error_embed(str(error)),
+                ephemeral=True,
+            )
+            return
+        except PocketBaseError as error:
+            await interaction.followup.send(
+                embed=self._error_embed(str(error)),
+                ephemeral=True,
+            )
+            return
+
+        discord_linked_id = user_record.get("discord_user_id")
+        if str(discord_linked_id) != str(interaction.user.id):
+            await interaction.followup.send(
                 embed=self._error_embed(
-                    "The PocketBase integration is not configured. Please contact a bot administrator."
+                    "That auth key belongs to a different Discord user. Please make sure you copied your own key."
                 ),
                 ephemeral=True,
             )
             return
 
+        await self.bot.database.set_pocketbase_token(interaction.user.id, auth_key)
+
+        embed = discord.Embed(
+            title="PocketBase linked",
+            description="Your auth key has been stored securely. You can now use the shift commands.",
+            color=SUCCESS_COLOR,
+        )
+        embed.add_field(
+            name="PocketBase user",
+            value=user_record.get("name") or user_record.get("id"),
+            inline=False,
+        )
+        role = user_record.get("role")
+        if role:
+            embed.add_field(name="Role", value=role, inline=False)
+        embed.set_footer(text="You can update your auth key at any time by running /login again.")
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="start-shift", description="Start your shift and log it in PocketBase.")
+    async def start_shift(self, interaction: discord.Interaction) -> None:
+        client = await self._require_client(interaction)
+        if client is None:
+            return
+
+        auth_token = await self._require_auth_token(interaction)
+        if auth_token is None:
+            return
+
         await interaction.response.defer(ephemeral=True)
         try:
-            user_record = await client.get_user_by_discord_id(interaction.user.id)
-            active_shift = await client.get_active_shift(user_record["id"])
+            user_record = await client.get_user_by_discord_id(auth_token, interaction.user.id)
+            user_id = user_record.get("id")
+            if not user_id:
+                raise PocketBaseError("PocketBase did not return your user ID.")
+
+            active_shift = await client.get_active_shift(auth_token, user_id)
             if active_shift:
                 start_time = active_shift.get("start_time")
                 start_dt = self._parse_timestamp(start_time) if start_time else None
@@ -49,7 +110,7 @@ class Shifts(commands.Cog, name="shifts"):
                 await interaction.followup.send(embed=embed, ephemeral=True)
                 return
 
-            shift_record = await client.create_shift(user_record["id"])
+            shift_record = await client.create_shift(auth_token, user_id)
             start_time = shift_record.get("start_time")
             start_dt = self._parse_timestamp(start_time) if start_time else self._now()
             embed = discord.Embed(
@@ -63,6 +124,8 @@ class Shifts(commands.Cog, name="shifts"):
                 inline=False,
             )
             await interaction.followup.send(embed=embed, ephemeral=True)
+        except PocketBaseAuthenticationError as error:
+            await self._handle_auth_error(interaction, error)
         except PocketBaseError as error:
             await interaction.followup.send(
                 embed=self._error_embed(str(error)), ephemeral=True
@@ -70,20 +133,22 @@ class Shifts(commands.Cog, name="shifts"):
 
     @app_commands.command(name="end-shift", description="End your active shift and record it in PocketBase.")
     async def end_shift(self, interaction: discord.Interaction) -> None:
-        client = self._get_client()
+        client = await self._require_client(interaction)
         if client is None:
-            await interaction.response.send_message(
-                embed=self._error_embed(
-                    "The PocketBase integration is not configured. Please contact a bot administrator."
-                ),
-                ephemeral=True,
-            )
+            return
+
+        auth_token = await self._require_auth_token(interaction)
+        if auth_token is None:
             return
 
         await interaction.response.defer(ephemeral=True)
         try:
-            user_record = await client.get_user_by_discord_id(interaction.user.id)
-            active_shift = await client.get_active_shift(user_record["id"])
+            user_record = await client.get_user_by_discord_id(auth_token, interaction.user.id)
+            user_id = user_record.get("id")
+            if not user_id:
+                raise PocketBaseError("PocketBase did not return your user ID.")
+
+            active_shift = await client.get_active_shift(auth_token, user_id)
             if not active_shift:
                 await interaction.followup.send(
                     embed=self._error_embed("You do not have an active shift to end."),
@@ -98,6 +163,7 @@ class Shifts(commands.Cog, name="shifts"):
             recorded_minutes = min(elapsed_minutes, MAX_DURATION_MINUTES)
 
             await client.complete_shift(
+                auth_token,
                 active_shift["id"],
                 self._format_pocketbase_timestamp(end_dt),
                 recorded_minutes,
@@ -123,6 +189,8 @@ class Shifts(commands.Cog, name="shifts"):
                 duration_text += " (capped at 360 minutes)"
             embed.add_field(name="Duration", value=duration_text, inline=False)
             await interaction.followup.send(embed=embed, ephemeral=True)
+        except PocketBaseAuthenticationError as error:
+            await self._handle_auth_error(interaction, error)
         except PocketBaseError as error:
             await interaction.followup.send(
                 embed=self._error_embed(str(error)), ephemeral=True
@@ -133,20 +201,22 @@ class Shifts(commands.Cog, name="shifts"):
         description="Check your current shift or view the most recent shift on record.",
     )
     async def shift_status(self, interaction: discord.Interaction) -> None:
-        client = self._get_client()
+        client = await self._require_client(interaction)
         if client is None:
-            await interaction.response.send_message(
-                embed=self._error_embed(
-                    "The PocketBase integration is not configured. Please contact a bot administrator."
-                ),
-                ephemeral=True,
-            )
+            return
+
+        auth_token = await self._require_auth_token(interaction)
+        if auth_token is None:
             return
 
         await interaction.response.defer(ephemeral=True)
         try:
-            user_record = await client.get_user_by_discord_id(interaction.user.id)
-            active_shift = await client.get_active_shift(user_record["id"])
+            user_record = await client.get_user_by_discord_id(auth_token, interaction.user.id)
+            user_id = user_record.get("id")
+            if not user_id:
+                raise PocketBaseError("PocketBase did not return your user ID.")
+
+            active_shift = await client.get_active_shift(auth_token, user_id)
             if active_shift:
                 start_time = active_shift.get("start_time")
                 start_dt = self._parse_timestamp(start_time) if start_time else self._now()
@@ -169,7 +239,7 @@ class Shifts(commands.Cog, name="shifts"):
                 await interaction.followup.send(embed=embed, ephemeral=True)
                 return
 
-            latest_shift = await client.get_latest_shift(user_record["id"])
+            latest_shift = await client.get_latest_shift(auth_token, user_id)
             if latest_shift:
                 embed = discord.Embed(
                     title="Shift status",
@@ -210,10 +280,48 @@ class Shifts(commands.Cog, name="shifts"):
                 ),
                 ephemeral=True,
             )
+        except PocketBaseAuthenticationError as error:
+            await self._handle_auth_error(interaction, error)
         except PocketBaseError as error:
             await interaction.followup.send(
                 embed=self._error_embed(str(error)), ephemeral=True
             )
+
+    async def _require_client(
+        self, interaction: discord.Interaction
+    ) -> Optional[PocketBaseClient]:
+        client = self._get_client()
+        if client is None:
+            await interaction.response.send_message(
+                embed=self._error_embed(
+                    "The PocketBase integration is not configured. Please contact a bot administrator."
+                ),
+                ephemeral=True,
+            )
+            return None
+        return client
+
+    async def _require_auth_token(self, interaction: discord.Interaction) -> Optional[str]:
+        token = await self.bot.database.get_pocketbase_token(interaction.user.id)
+        if token:
+            return token
+
+        await interaction.response.send_message(
+            embed=self._error_embed(
+                "Please link your PocketBase auth key first by running /login."
+            ),
+            ephemeral=True,
+        )
+        return None
+
+    async def _handle_auth_error(
+        self, interaction: discord.Interaction, error: PocketBaseAuthenticationError
+    ) -> None:
+        await self.bot.database.clear_pocketbase_token(interaction.user.id)
+        await interaction.followup.send(
+            embed=self._error_embed(f"{error} Your saved auth key has been removed."),
+            ephemeral=True,
+        )
 
     def _get_client(self) -> Optional[PocketBaseClient]:
         client = getattr(self.bot, "pocketbase", None)

@@ -140,8 +140,6 @@ class DiscordBot(commands.Bot):
         self.invite_link = os.getenv("INVITE_LINK")
         self.pocketbase = PocketBaseClient(
             base_url=os.getenv("POCKETBASE_URL"),
-            admin_email=os.getenv("POCKETBASE_ADMIN_EMAIL"),
-            admin_password=os.getenv("POCKETBASE_ADMIN_PASSWORD"),
         )
 
     async def init_db(self) -> None:
