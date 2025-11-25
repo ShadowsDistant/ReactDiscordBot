@@ -20,10 +20,11 @@ from discord.ext.commands import Context
 from dotenv import load_dotenv
 
 from database import DatabaseManager
+from pocketbase_client import PocketBaseClient
 
 load_dotenv()
 
-"""	
+"""    
 Setup bot intents (events restrictions)
 For more information about intents, please go to the following websites:
 https://discordpy.readthedocs.io/en/latest/intents.html
@@ -137,6 +138,11 @@ class DiscordBot(commands.Bot):
         self.database = None
         self.bot_prefix = os.getenv("PREFIX")
         self.invite_link = os.getenv("INVITE_LINK")
+        self.pocketbase = PocketBaseClient(
+            base_url=os.getenv("POCKETBASE_URL"),
+            admin_email=os.getenv("POCKETBASE_ADMIN_EMAIL"),
+            admin_password=os.getenv("POCKETBASE_ADMIN_PASSWORD"),
+        )
 
     async def init_db(self) -> None:
         async with aiosqlite.connect(

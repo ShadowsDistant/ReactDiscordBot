@@ -86,6 +86,16 @@ To set up the token you will have to make use of the [`.env.example`](.env.examp
 
 Alternatively you can simply create a system environment variable with the same names and their respective value.
 
+### PocketBase integration
+
+The `/start-shift`, `/end-shift`, and `/shift-status` commands require access to the PocketBase instance that powers the staff portal. Provide the following environment variables in your `.env` file (or as system variables) to enable these commands:
+
+| Variable | Description |
+| --- | --- |
+| `POCKETBASE_URL` | Base URL of the PocketBase deployment (e.g. `https://api-react.pikapod.net`). |
+| `POCKETBASE_ADMIN_EMAIL` | Admin email used for authenticating with the PocketBase API. |
+| `POCKETBASE_ADMIN_PASSWORD` | Password for the admin PocketBase account. |
+
 ## How to start
 
 ### The _"usual"_ way
