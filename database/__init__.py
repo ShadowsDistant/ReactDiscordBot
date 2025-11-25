@@ -7,6 +7,7 @@ Version: 6.4.0
 """
 
 import aiosqlite
+from typing import Optional
 
 
 class DatabaseManager:
@@ -94,3 +95,41 @@ class DatabaseManager:
             for row in result:
                 result_list.append(row)
             return result_list
+
+    async def set_pocketbase_token(self, discord_user_id: int, auth_token: str) -> None:
+        """Store or update the PocketBase auth token for a Discord user."""
+
+        await self.connection.execute(
+            """
+            INSERT INTO pocketbase_tokens(discord_user_id, auth_token)
+            VALUES (?, ?)
+            ON CONFLICT(discord_user_id) DO UPDATE SET
+                auth_token=excluded.auth_token,
+                updated_at=CURRENT_TIMESTAMP
+            """,
+            (
+                str(discord_user_id),
+                auth_token,
+            ),
+        )
+        await self.connection.commit()
+
+    async def get_pocketbase_token(self, discord_user_id: int) -> Optional[str]:
+        """Fetch the stored PocketBase auth token for a Discord user."""
+
+        rows = await self.connection.execute(
+            "SELECT auth_token FROM pocketbase_tokens WHERE discord_user_id=?",
+            (str(discord_user_id),),
+        )
+        async with rows as cursor:
+            result = await cursor.fetchone()
+            return result[0] if result is not None else None
+
+    async def clear_pocketbase_token(self, discord_user_id: int) -> None:
+        """Remove the stored PocketBase auth token for a Discord user."""
+
+        await self.connection.execute(
+            "DELETE FROM pocketbase_tokens WHERE discord_user_id=?",
+            (str(discord_user_id),),
+        )
+        await self.connection.commit()

@@ -86,6 +86,12 @@ To set up the token you will have to make use of the [`.env.example`](.env.examp
 
 Alternatively you can simply create a system environment variable with the same names and their respective value.
 
+### PocketBase integration
+
+Set the `POCKETBASE_URL` environment variable (e.g. `https://api-react.pikapod.net`) so the bot knows where to reach your PocketBase instance.
+
+Each staff member must run the `/login` command and supply their personal PocketBase auth key before they can use `/start-shift`, `/end-shift`, or `/shift-status`. The auth key is stored securely in the bot's local database and is used to authenticate requests on behalf of the staff member; you can update it at any time by running `/login` again.
+
 ## How to start
 
 ### The _"usual"_ way
